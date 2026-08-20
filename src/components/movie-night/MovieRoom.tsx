@@ -30,9 +30,11 @@ export default function MovieRoom({ roomId }: MovieRoomProps) {
 
   return (
     <main className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#08060c] text-white">
+      {/* MESSAGE */}
+
       <IncomingMessagePopup message={room.popupMessage} />
 
-      {/* JOIN NOTIFICATION */}
+      {/* JOIN */}
 
       {room.joinNotification && (
         <div className="fixed left-1/2 top-4 z-[60] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2">
@@ -71,7 +73,7 @@ export default function MovieRoom({ roomId }: MovieRoomProps) {
           </div>
 
           <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold leading-tight sm:text-base">
+            <h1 className="truncate text-lg font-semibold leading-tight">
               Movie Night
             </h1>
 
@@ -86,7 +88,7 @@ export default function MovieRoom({ roomId }: MovieRoomProps) {
                 }`}
               />
 
-              <p className="truncate text-sm text-white/40 sm:text-xs">
+              <p className="truncate text-xs text-white/40">
                 {room.webRtcConnected
                   ? "Connected"
                   : room.partnerConnected
@@ -104,17 +106,17 @@ export default function MovieRoom({ roomId }: MovieRoomProps) {
         </div>
       </header>
 
-      {/* MOBILE FIRST BODY */}
+      {/* BODY */}
 
       <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_360px]">
-        {/* VIDEO */}
-
         <div className="shrink-0 md:min-h-0 md:min-w-0 md:overflow-hidden">
           <MovieStage
             roomId={roomId}
             partnerConnected={room.partnerConnected}
-            remoteVideoAvailable={room.remoteVideoAvailable}
-            remoteVideoRef={room.remoteVideoRef}
+            remoteCameraAvailable={room.remoteCameraAvailable}
+            remoteScreenAvailable={room.remoteScreenAvailable}
+            remoteCameraVideoRef={room.remoteCameraVideoRef}
+            remoteScreenVideoRef={room.remoteScreenVideoRef}
             micOn={room.micOn}
             cameraOn={room.cameraOn}
             localStream={room.localStream}
@@ -125,8 +127,6 @@ export default function MovieRoom({ roomId }: MovieRoomProps) {
             onSendLove={room.sendLove}
           />
         </div>
-
-        {/* CHAT */}
 
         <div className="min-h-0 flex-1 border-t border-white/10 md:border-l md:border-t-0">
           <ChatPanel

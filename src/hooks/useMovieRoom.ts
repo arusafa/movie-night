@@ -11,6 +11,11 @@ interface UseMovieRoomOptions {
   enabled: boolean;
 }
 
+interface RemoteMediaState {
+  camera: boolean;
+  screen: boolean;
+}
+
 export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
   const socket = getSocket();
 
@@ -22,7 +27,9 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
   const [webRtcConnected, setWebRtcConnected] = useState(false);
 
-  const [remoteVideoAvailable, setRemoteVideoAvailable] = useState(false);
+  const [remoteCameraAvailable, setRemoteCameraAvailable] = useState(false);
+
+  const [remoteScreenAvailable, setRemoteScreenAvailable] = useState(false);
 
   const [micOn, setMicOn] = useState(false);
 
@@ -48,17 +55,42 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
   const peerRef = useRef<RTCPeerConnection | null>(null);
 
-  const videoSenderRef = useRef<RTCRtpSender | null>(null);
+  /*
+   * We create THREE permanent WebRTC
+   * transceivers:
+   *
+   * 1. Camera video
+   * 2. Screen video
+   * 3. Audio
+   */
+
+  const cameraTransceiverRef = useRef<RTCRtpTransceiver | null>(null);
+
+  const screenTransceiverRef = useRef<RTCRtpTransceiver | null>(null);
+
+  const audioTransceiverRef = useRef<RTCRtpTransceiver | null>(null);
+
+  const cameraSenderRef = useRef<RTCRtpSender | null>(null);
+
+  const screenSenderRef = useRef<RTCRtpSender | null>(null);
 
   const audioSenderRef = useRef<RTCRtpSender | null>(null);
 
   /* =========================================================
-   * REMOTE MEDIA
+   * REMOTE CAMERA
    * ======================================================= */
 
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteCameraVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const remoteCameraStreamRef = useRef<MediaStream | null>(null);
+
+  /* =========================================================
+   * REMOTE SCREEN
+   * ======================================================= */
+
+  const remoteScreenVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const remoteScreenStreamRef = useRef<MediaStream | null>(null);
 
   /* =========================================================
    * LOCAL MEDIA
@@ -66,26 +98,12 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
-  const micStreamRef = useRef<MediaStream | null>(null);
+  const microphoneStreamRef = useRef<MediaStream | null>(null);
 
   const screenStreamRef = useRef<MediaStream | null>(null);
 
   /* =========================================================
-   * VIDEO COMPOSITOR
-   * ======================================================= */
-
-  const canvasStreamRef = useRef<MediaStream | null>(null);
-
-  const canvasAnimationRef = useRef<number | null>(null);
-
-  const compositorStartedRef = useRef(false);
-
-  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
-
-  /* =========================================================
-   * AUDIO
+   * AUDIO MIXER
    * ======================================================= */
 
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -93,8 +111,6 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
   /* =========================================================
    * LIVE STATE REFS
    * ======================================================= */
-
-  const partnerConnectedRef = useRef(false);
 
   const cameraOnRef = useRef(false);
 
@@ -119,13 +135,13 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
   const loveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* =========================================================
-   * REMOTE STREAM
+   * ATTACH REMOTE CAMERA
    * ======================================================= */
 
-  const attachRemoteStream = useCallback(() => {
-    const video = remoteVideoRef.current;
+  const attachRemoteCamera = useCallback(() => {
+    const video = remoteCameraVideoRef.current;
 
-    const stream = remoteStreamRef.current;
+    const stream = remoteCameraStreamRef.current;
 
     if (!video || !stream) {
       return;
@@ -139,21 +155,41 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
   }, []);
 
   /* =========================================================
-   * VIDEO VISIBILITY SIGNAL
+   * ATTACH REMOTE SCREEN
    * ======================================================= */
 
-  const sendVideoState = useCallback(
-    (active: boolean) => {
-      socket.emit("video-state", {
-        roomId,
-        active,
-      });
-    },
-    [roomId, socket],
-  );
+  const attachRemoteScreen = useCallback(() => {
+    const video = remoteScreenVideoRef.current;
+
+    const stream = remoteScreenStreamRef.current;
+
+    if (!video || !stream) {
+      return;
+    }
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+
+    void video.play().catch(() => {});
+  }, []);
 
   /* =========================================================
-   * AUDIO HELPERS
+   * MEDIA STATE SIGNALING
+   * ======================================================= */
+
+  const sendMediaState = useCallback(() => {
+    socket.emit("media-state", {
+      roomId,
+
+      camera: cameraOnRef.current,
+
+      screen: sharingRef.current,
+    });
+  }, [roomId, socket]);
+
+  /* =========================================================
+   * AUDIO
    * ======================================================= */
 
   const closeAudioContext = useCallback(async () => {
@@ -165,45 +201,59 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
     try {
       await context.close();
-    } catch {
-      // Ignore cleanup error.
-    }
+    } catch {}
 
     audioContextRef.current = null;
   }, []);
 
-  const rebuildOutgoingAudio = useCallback(
-    async (includeScreenAudio: boolean) => {
-      const sender = audioSenderRef.current;
+  const rebuildOutgoingAudio = useCallback(async () => {
+    const sender = audioSenderRef.current;
 
-      if (!sender) {
-        return;
-      }
+    if (!sender) {
+      return;
+    }
 
-      await closeAudioContext();
+    await closeAudioContext();
 
-      const micTrack = micStreamRef.current?.getAudioTracks()[0];
+    const microphoneTrack = microphoneStreamRef.current?.getAudioTracks()[0];
 
-      const screenTrack = screenStreamRef.current?.getAudioTracks()[0];
+    const screenAudioTrack = screenStreamRef.current?.getAudioTracks()[0];
 
-      /*
-       * No screen audio:
-       * send microphone only.
-       */
-      if (!includeScreenAudio || !screenTrack) {
-        await sender.replaceTrack(
-          micTrack && micOnRef.current ? micTrack : null,
-        );
+    /*
+     * Nothing.
+     */
 
-        return;
-      }
+    if (!micOnRef.current && !screenAudioTrack) {
+      await sender.replaceTrack(null);
 
-      /*
-       * Screen audio exists.
-       * Mix screen audio +
-       * microphone if mic is ON.
-       */
+      return;
+    }
 
+    /*
+     * Microphone only.
+     */
+
+    if (micOnRef.current && microphoneTrack && !screenAudioTrack) {
+      await sender.replaceTrack(microphoneTrack);
+
+      return;
+    }
+
+    /*
+     * Screen audio only.
+     */
+
+    if (!micOnRef.current && screenAudioTrack) {
+      await sender.replaceTrack(screenAudioTrack);
+
+      return;
+    }
+
+    /*
+     * Screen audio + microphone.
+     */
+
+    if (microphoneTrack && screenAudioTrack) {
       const context = new AudioContext();
 
       audioContextRef.current = context;
@@ -211,485 +261,28 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       if (context.state === "suspended") {
         try {
           await context.resume();
-        } catch {
-          // Ignore.
-        }
+        } catch {}
       }
 
       const destination = context.createMediaStreamDestination();
 
-      /*
-       * Screen audio.
-       */
-      const screenSource = context.createMediaStreamSource(
-        new MediaStream([screenTrack]),
+      const micSource = context.createMediaStreamSource(
+        new MediaStream([microphoneTrack]),
       );
+
+      const screenSource = context.createMediaStreamSource(
+        new MediaStream([screenAudioTrack]),
+      );
+
+      micSource.connect(destination);
 
       screenSource.connect(destination);
 
-      /*
-       * Microphone.
-       */
-      if (micTrack && micOnRef.current) {
-        const micSource = context.createMediaStreamSource(
-          new MediaStream([micTrack]),
-        );
+      const mixedTrack = destination.stream.getAudioTracks()[0];
 
-        micSource.connect(destination);
-      }
-
-      const outputTrack = destination.stream.getAudioTracks()[0];
-
-      await sender.replaceTrack(outputTrack ?? null);
-    },
-    [closeAudioContext],
-  );
-
-  /* =========================================================
-   * DRAW SCREEN
-   * ======================================================= */
-
-  const drawScreen = useCallback(
-    (
-      ctx: CanvasRenderingContext2D,
-      video: HTMLVideoElement,
-      canvas: HTMLCanvasElement,
-    ) => {
-      if (!video.videoWidth || !video.videoHeight) {
-        return;
-      }
-
-      const sourceWidth = video.videoWidth;
-
-      const sourceHeight = video.videoHeight;
-
-      const sourceRatio = sourceWidth / sourceHeight;
-
-      const canvasRatio = canvas.width / canvas.height;
-
-      let cropWidth = sourceWidth;
-
-      let cropHeight = sourceHeight;
-
-      let cropX = 0;
-      let cropY = 0;
-
-      /*
-       * object-cover behavior.
-       *
-       * Fill the ENTIRE 1280x720 canvas.
-       * No black bars.
-       */
-
-      if (sourceRatio > canvasRatio) {
-        /*
-         * Source is wider than canvas.
-         * Crop left/right.
-         */
-
-        cropWidth = sourceHeight * canvasRatio;
-
-        cropX = (sourceWidth - cropWidth) / 2;
-      } else {
-        /*
-         * Source is taller than canvas.
-         * Crop top/bottom.
-         */
-
-        cropHeight = sourceWidth / canvasRatio;
-
-        cropY = (sourceHeight - cropHeight) / 2;
-      }
-
-      ctx.drawImage(
-        video,
-
-        cropX,
-        cropY,
-        cropWidth,
-        cropHeight,
-
-        0,
-        0,
-        canvas.width,
-        canvas.height,
-      );
-    },
-    [],
-  );
-
-  /* =========================================================
-   * DRAW CAMERA PIP
-   *
-   * Camera is ALWAYS bottom-right.
-   * Never full screen.
-   * ======================================================= */
-
-  const drawCameraPip = useCallback(
-    (
-      ctx: CanvasRenderingContext2D,
-
-      video: HTMLVideoElement,
-
-      canvas: HTMLCanvasElement,
-    ) => {
-      const width = 300;
-      const height = 169;
-      const margin = 28;
-
-      const x = canvas.width - width - margin;
-
-      const y = canvas.height - height - margin;
-
-      const radius = 22;
-
-      const sourceWidth = video.videoWidth || 1280;
-
-      const sourceHeight = video.videoHeight || 720;
-
-      const sourceRatio = sourceWidth / sourceHeight;
-
-      const targetRatio = width / height;
-
-      let cropWidth = sourceWidth;
-
-      let cropHeight = sourceHeight;
-
-      let cropX = 0;
-      let cropY = 0;
-
-      /*
-       * object-cover camera crop.
-       */
-      if (sourceRatio > targetRatio) {
-        cropWidth = sourceHeight * targetRatio;
-
-        cropX = (sourceWidth - cropWidth) / 2;
-      } else {
-        cropHeight = sourceWidth / targetRatio;
-
-        cropY = (sourceHeight - cropHeight) / 2;
-      }
-
-      /*
-       * Camera shadow + clipping.
-       */
-
-      ctx.save();
-
-      ctx.shadowColor = "rgba(0,0,0,0.75)";
-
-      ctx.shadowBlur = 30;
-
-      ctx.shadowOffsetY = 8;
-
-      ctx.beginPath();
-
-      ctx.roundRect(x, y, width, height, radius);
-
-      ctx.clip();
-
-      /*
-       * Mirror selfie camera.
-       */
-
-      ctx.translate(x + width, y);
-
-      ctx.scale(-1, 1);
-
-      ctx.drawImage(
-        video,
-
-        cropX,
-        cropY,
-        cropWidth,
-        cropHeight,
-
-        0,
-        0,
-        width,
-        height,
-      );
-
-      ctx.restore();
-
-      /*
-       * Border.
-       */
-
-      ctx.save();
-
-      ctx.beginPath();
-
-      ctx.roundRect(x, y, width, height, radius);
-
-      ctx.strokeStyle = "rgba(255,255,255,0.35)";
-
-      ctx.lineWidth = 3;
-
-      ctx.stroke();
-
-      ctx.restore();
-
-      /*
-       * YOU badge.
-       */
-
-      ctx.save();
-
-      ctx.fillStyle = "rgba(0,0,0,0.72)";
-
-      ctx.beginPath();
-
-      ctx.roundRect(x + 14, y + height - 44, 72, 30, 15);
-
-      ctx.fill();
-
-      ctx.fillStyle = "#ffffff";
-
-      ctx.font = "600 13px system-ui";
-
-      ctx.textBaseline = "middle";
-
-      ctx.fillText("● You", x + 25, y + height - 29);
-
-      ctx.restore();
-    },
-    [],
-  );
-
-  /* =========================================================
-   * PERMANENT VIDEO COMPOSITOR
-   * ======================================================= */
-
-  const ensureVideoCompositor = useCallback(async () => {
-    if (compositorStartedRef.current) {
-      return;
+      await sender.replaceTrack(mixedTrack ?? null);
     }
-
-    const sender = videoSenderRef.current;
-
-    if (!sender) {
-      throw new Error("Video sender is not ready.");
-    }
-
-    /*
-     * Hidden camera video.
-     *
-     * Creating this does NOT
-     * request camera permission.
-     */
-
-    const cameraVideo = document.createElement("video");
-
-    cameraVideo.autoplay = true;
-
-    cameraVideo.muted = true;
-
-    cameraVideo.playsInline = true;
-
-    cameraVideoRef.current = cameraVideo;
-
-    if (cameraStreamRef.current) {
-      cameraVideo.srcObject = cameraStreamRef.current;
-
-      try {
-        await cameraVideo.play();
-      } catch {
-        // Ignore.
-      }
-    }
-
-    /*
-     * Hidden screen video.
-     */
-
-    const screenVideo = document.createElement("video");
-
-    screenVideo.autoplay = true;
-
-    screenVideo.muted = true;
-
-    screenVideo.playsInline = true;
-
-    screenVideoRef.current = screenVideo;
-
-    if (screenStreamRef.current) {
-      screenVideo.srcObject = screenStreamRef.current;
-
-      try {
-        await screenVideo.play();
-      } catch {
-        // Ignore.
-      }
-    }
-
-    /*
-     * Permanent 16:9 output.
-     */
-
-    const canvas = document.createElement("canvas");
-
-    canvas.width = 1280;
-    canvas.height = 720;
-
-    const ctx = canvas.getContext("2d");
-
-    if (!ctx) {
-      throw new Error("Canvas is unavailable.");
-    }
-
-    /*
-     * ===============================================
-     * PERMANENT DRAW LOOP
-     * ===============================================
-     *
-     * Drawing order:
-     *
-     * 1. Black
-     * 2. Screen if sharing
-     * 3. Camera PiP if camera ON
-     *
-     * This guarantees:
-     *
-     * Camera only:
-     * black + PiP
-     *
-     * Screen only:
-     * screen
-     *
-     * Screen + camera:
-     * screen + PiP
-     */
-
-    const draw = () => {
-      /*
-       * VERY IMPORTANT:
-       *
-       * clear every frame so an
-       * old screen-share frame can
-       * never remain after sharing
-       * stops.
-       */
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = "#000000";
-
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const currentCamera = cameraVideoRef.current;
-
-      const currentScreen = screenVideoRef.current;
-
-      const screenReady = Boolean(
-        sharingRef.current &&
-        currentScreen &&
-        currentScreen.srcObject &&
-        currentScreen.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-        currentScreen.videoWidth > 0 &&
-        currentScreen.videoHeight > 0,
-      );
-
-      const cameraReady = Boolean(
-        cameraOnRef.current &&
-        currentCamera &&
-        currentCamera.srcObject &&
-        currentCamera.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-        currentCamera.videoWidth > 0 &&
-        currentCamera.videoHeight > 0,
-      );
-
-      /*
-       * SCREEN = MAIN CONTENT
-       */
-
-      if (screenReady && currentScreen) {
-        drawScreen(ctx, currentScreen, canvas);
-      }
-
-      /*
-       * CAMERA = ALWAYS PIP
-       */
-
-      if (cameraReady && currentCamera) {
-        drawCameraPip(ctx, currentCamera, canvas);
-      }
-
-      canvasAnimationRef.current = requestAnimationFrame(draw);
-    };
-
-    draw();
-
-    /*
-     * One permanent WebRTC
-     * video track.
-     */
-
-    const canvasStream = canvas.captureStream(30);
-
-    canvasStreamRef.current = canvasStream;
-
-    const track = canvasStream.getVideoTracks()[0];
-
-    if (!track) {
-      throw new Error("Canvas video track unavailable.");
-    }
-
-    await sender.replaceTrack(track);
-
-    compositorStartedRef.current = true;
-
-    console.log("[Video] compositor started");
-  }, [drawCameraPip, drawScreen]);
-
-  /* =========================================================
-   * ATTACH CAMERA
-   * ======================================================= */
-
-  const attachCamera = useCallback(async () => {
-    const video = cameraVideoRef.current;
-
-    const stream = cameraStreamRef.current;
-
-    if (!video || !stream) {
-      return;
-    }
-
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
-    }
-
-    try {
-      await video.play();
-    } catch {
-      // Ignore.
-    }
-  }, []);
-
-  /* =========================================================
-   * ATTACH SCREEN
-   * ======================================================= */
-
-  const attachScreen = useCallback(async () => {
-    const video = screenVideoRef.current;
-
-    const stream = screenStreamRef.current;
-
-    if (!video || !stream) {
-      return;
-    }
-
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
-    }
-
-    try {
-      await video.play();
-    } catch {
-      // Ignore.
-    }
-  }, []);
+  }, [closeAudioContext]);
 
   /* =========================================================
    * STOP SCREEN SHARING
@@ -700,15 +293,10 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       return;
     }
 
-    console.log("[Video] stopping screen share");
+    console.log("[Screen] stopping");
 
     /*
-     * FIRST:
-     *
-     * Turn sharing off.
-     *
-     * The compositor immediately
-     * stops drawing the screen.
+     * State first.
      */
 
     sharingRef.current = false;
@@ -716,62 +304,44 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
     setSharing(false);
 
     /*
-     * Remove native screen capture.
+     * Stop sending screen video.
      */
 
-    const screenStream = screenStreamRef.current;
+    try {
+      await screenSenderRef.current?.replaceTrack(null);
+    } catch (error) {
+      console.warn("[Screen] replaceTrack(null):", error);
+    }
+
+    /*
+     * Stop local display capture.
+     */
+
+    const stream = screenStreamRef.current;
 
     screenStreamRef.current = null;
 
-    screenStream?.getTracks().forEach((track) => {
+    stream?.getTracks().forEach((track) => {
       track.onended = null;
 
       track.stop();
     });
 
     /*
-     * Completely detach the
-     * old screen video.
+     * Screen audio disappears too.
      */
 
-    const screenVideo = screenVideoRef.current;
-
-    if (screenVideo) {
-      screenVideo.pause();
-
-      screenVideo.srcObject = null;
-
-      screenVideo.removeAttribute("src");
-
-      screenVideo.load();
-    }
+    await rebuildOutgoingAudio();
 
     /*
-     * Restore normal microphone
-     * configuration.
+     * Tell partner immediately.
      */
 
-    await rebuildOutgoingAudio(false);
-
-    /*
-     * Camera remains independent.
-     *
-     * Camera ON:
-     * keep remote video visible.
-     *
-     * Camera OFF:
-     * hide remote video.
-     */
-
-    sendVideoState(cameraOnRef.current);
-
-    socket.emit("screen-share-stopped", {
-      roomId,
-    });
-  }, [rebuildOutgoingAudio, roomId, sendVideoState, socket]);
+    sendMediaState();
+  }, [rebuildOutgoingAudio, sendMediaState]);
 
   /* =========================================================
-   * WEBRTC + SOCKET
+   * SOCKET + WEBRTC
    * ======================================================= */
 
   useEffect(() => {
@@ -780,8 +350,10 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
     }
 
     let disposed = false;
+
     let isCaller = false;
-    let restartAttempted = false;
+
+    let iceRestartAttempted = false;
 
     const peer = new RTCPeerConnection({
       iceServers: [
@@ -800,30 +372,45 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
     peerRef.current = peer;
 
     /*
-     * Remote stream.
+     * =====================================================
+     * CREATE PERMANENT TRANSCEIVERS
+     * =====================================================
+     *
+     * Order matters and is the same
+     * on both browsers.
      */
 
-    remoteStreamRef.current = new MediaStream();
-
-    /*
-     * Persistent video sender.
-     */
-
-    const videoTransceiver = peer.addTransceiver("video", {
+    const cameraTransceiver = peer.addTransceiver("video", {
       direction: "sendrecv",
     });
 
-    videoSenderRef.current = videoTransceiver.sender;
+    cameraTransceiverRef.current = cameraTransceiver;
 
-    /*
-     * Persistent audio sender.
-     */
+    cameraSenderRef.current = cameraTransceiver.sender;
+
+    const screenTransceiver = peer.addTransceiver("video", {
+      direction: "sendrecv",
+    });
+
+    screenTransceiverRef.current = screenTransceiver;
+
+    screenSenderRef.current = screenTransceiver.sender;
 
     const audioTransceiver = peer.addTransceiver("audio", {
       direction: "sendrecv",
     });
 
+    audioTransceiverRef.current = audioTransceiver;
+
     audioSenderRef.current = audioTransceiver.sender;
+
+    /*
+     * Separate remote streams.
+     */
+
+    remoteCameraStreamRef.current = new MediaStream();
+
+    remoteScreenStreamRef.current = new MediaStream();
 
     /* =====================================================
      * REMOTE TRACK
@@ -834,29 +421,59 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
         return;
       }
 
-      const stream = remoteStreamRef.current;
+      /*
+       * CAMERA transceiver.
+       */
 
-      if (!stream) {
+      if (event.transceiver === cameraTransceiverRef.current) {
+        const stream = remoteCameraStreamRef.current;
+
+        if (!stream) {
+          return;
+        }
+
+        const exists = stream
+          .getTracks()
+          .some((track) => track.id === event.track.id);
+
+        if (!exists) {
+          stream.addTrack(event.track);
+        }
+
+        attachRemoteCamera();
+
+        event.track.onunmute = () => {
+          attachRemoteCamera();
+        };
+
         return;
       }
 
-      const exists = stream
-        .getTracks()
-        .some((track) => track.id === event.track.id);
+      /*
+       * SCREEN transceiver.
+       */
 
-      if (!exists) {
-        stream.addTrack(event.track);
+      if (event.transceiver === screenTransceiverRef.current) {
+        const stream = remoteScreenStreamRef.current;
+
+        if (!stream) {
+          return;
+        }
+
+        const exists = stream
+          .getTracks()
+          .some((track) => track.id === event.track.id);
+
+        if (!exists) {
+          stream.addTrack(event.track);
+        }
+
+        attachRemoteScreen();
+
+        event.track.onunmute = () => {
+          attachRemoteScreen();
+        };
       }
-
-      attachRemoteStream();
-
-      event.track.onunmute = () => {
-        attachRemoteStream();
-      };
-
-      event.track.onended = () => {
-        stream.removeTrack(event.track);
-      };
     };
 
     /* =====================================================
@@ -875,10 +492,6 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       });
     };
 
-    peer.oniceconnectionstatechange = () => {
-      console.log("[WebRTC] ICE:", peer.iceConnectionState);
-    };
-
     peer.onconnectionstatechange = () => {
       if (disposed) {
         return;
@@ -886,29 +499,23 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
       const state = peer.connectionState;
 
-      console.log("[WebRTC] connection:", state);
+      console.log("[WebRTC]", state);
 
       setWebRtcConnected(state === "connected");
 
       if (state === "connected") {
-        restartAttempted = false;
+        iceRestartAttempted = false;
       }
 
-      /*
-       * One ICE restart attempt.
-       */
-
-      if (state === "failed" && isCaller && !restartAttempted) {
-        restartAttempted = true;
-
-        console.warn("[WebRTC] restarting ICE");
+      if (state === "failed" && isCaller && !iceRestartAttempted) {
+        iceRestartAttempted = true;
 
         void createOffer(true);
       }
     };
 
     /* =====================================================
-     * PENDING ICE
+     * ICE QUEUE
      * =================================================== */
 
     const flushCandidates = async () => {
@@ -916,16 +523,14 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
         return;
       }
 
-      const queued = [...pendingCandidatesRef.current];
+      const candidates = [...pendingCandidatesRef.current];
 
       pendingCandidatesRef.current = [];
 
-      for (const candidate of queued) {
+      for (const candidate of candidates) {
         try {
           await peer.addIceCandidate(candidate);
-        } catch {
-          // Ignore stale candidate.
-        }
+        } catch {}
       }
     };
 
@@ -959,7 +564,7 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
           offer: peer.localDescription,
         });
       } catch (error) {
-        console.warn("[WebRTC] offer error:", error);
+        console.warn("[WebRTC] offer:", error);
       }
     };
 
@@ -971,18 +576,14 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       isCaller = isFirstUser;
 
       if (isFirstUser) {
-        partnerConnectedRef.current = false;
-
         setPartnerConnected(false);
 
         return;
       }
 
-      partnerConnectedRef.current = true;
-
       setPartnerConnected(true);
 
-      sendVideoState(cameraOnRef.current || sharingRef.current);
+      sendMediaState();
     };
 
     /* =====================================================
@@ -991,8 +592,6 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
     const handleUserJoined = async () => {
       isCaller = true;
-
-      partnerConnectedRef.current = true;
 
       setPartnerConnected(true);
 
@@ -1007,19 +606,19 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       }, 4000);
 
       /*
-       * Let second browser finish
-       * attaching listeners.
+       * Give second browser time
+       * to finish initialization.
        */
 
       await new Promise((resolve) => window.setTimeout(resolve, 100));
 
       await createOffer(false);
 
-      sendVideoState(cameraOnRef.current || sharingRef.current);
+      sendMediaState();
     };
 
     /* =====================================================
-     * RECEIVE OFFER
+     * OFFER
      * =================================================== */
 
     const handleOffer = async (offer: RTCSessionDescriptionInit) => {
@@ -1027,11 +626,11 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
         return;
       }
 
-      try {
-        if (peer.signalingState !== "stable") {
-          return;
-        }
+      if (peer.signalingState !== "stable") {
+        return;
+      }
 
+      try {
         await peer.setRemoteDescription(offer);
 
         await flushCandidates();
@@ -1055,7 +654,7 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
     };
 
     /* =====================================================
-     * RECEIVE ANSWER
+     * ANSWER
      * =================================================== */
 
     const handleAnswer = async (answer: RTCSessionDescriptionInit) => {
@@ -1093,47 +692,47 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
       try {
         await peer.addIceCandidate(candidate);
-      } catch {
-        // Ignore stale candidate.
-      }
+      } catch {}
     };
 
     /* =====================================================
-     * VIDEO STATE
+     * REMOTE MEDIA STATE
      * =================================================== */
 
-    const handleVideoState = ({ active }: { active: boolean }) => {
-      setRemoteVideoAvailable(active);
+    const handleMediaState = ({ camera, screen }: RemoteMediaState) => {
+      setRemoteCameraAvailable(Boolean(camera));
 
-      if (active) {
-        window.setTimeout(() => {
-          attachRemoteStream();
-        }, 50);
+      setRemoteScreenAvailable(Boolean(screen));
+
+      if (camera) {
+        window.setTimeout(attachRemoteCamera, 50);
+      }
+
+      if (screen) {
+        window.setTimeout(attachRemoteScreen, 50);
       }
     };
 
     /* =====================================================
-     * USER LEFT
+     * PARTNER LEFT
      * =================================================== */
 
     const handleUserLeft = () => {
-      partnerConnectedRef.current = false;
-
       setPartnerConnected(false);
 
       setWebRtcConnected(false);
 
-      setRemoteVideoAvailable(false);
+      setRemoteCameraAvailable(false);
 
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = null;
+      setRemoteScreenAvailable(false);
+
+      if (remoteCameraVideoRef.current) {
+        remoteCameraVideoRef.current.srcObject = null;
       }
 
-      const stream = remoteStreamRef.current;
-
-      stream?.getTracks().forEach((track) => {
-        stream.removeTrack(track);
-      });
+      if (remoteScreenVideoRef.current) {
+        remoteScreenVideoRef.current.srcObject = null;
+      }
     };
 
     /* =====================================================
@@ -1184,10 +783,6 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       }, 2200);
     };
 
-    /* =====================================================
-     * ROOM FULL
-     * =================================================== */
-
     const handleRoomFull = () => {
       alert("This room already has two people.");
 
@@ -1208,7 +803,7 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
     socket.on("ice-candidate", handleIceCandidate);
 
-    socket.on("video-state", handleVideoState);
+    socket.on("media-state", handleMediaState);
 
     socket.on("user-left", handleUserLeft);
 
@@ -1219,7 +814,7 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
     socket.on("room-full", handleRoomFull);
 
     /* =====================================================
-     * JOIN ROOM
+     * JOIN
      * =================================================== */
 
     const joinRoom = () => {
@@ -1253,7 +848,7 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
       socket.off("ice-candidate", handleIceCandidate);
 
-      socket.off("video-state", handleVideoState);
+      socket.off("media-state", handleMediaState);
 
       socket.off("user-left", handleUserLeft);
 
@@ -1279,13 +874,9 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
         clearTimeout(loveTimeoutRef.current);
       }
 
-      cameraStreamRef.current?.getTracks().forEach((track) => {
-        track.stop();
-      });
+      cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
 
-      micStreamRef.current?.getTracks().forEach((track) => {
-        track.stop();
-      });
+      microphoneStreamRef.current?.getTracks().forEach((track) => track.stop());
 
       screenStreamRef.current?.getTracks().forEach((track) => {
         track.onended = null;
@@ -1293,53 +884,35 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
         track.stop();
       });
 
-      if (canvasAnimationRef.current !== null) {
-        cancelAnimationFrame(canvasAnimationRef.current);
-
-        canvasAnimationRef.current = null;
-      }
-
-      canvasStreamRef.current?.getTracks().forEach((track) => {
-        track.stop();
-      });
-
-      if (cameraVideoRef.current) {
-        cameraVideoRef.current.srcObject = null;
-      }
-
-      if (screenVideoRef.current) {
-        screenVideoRef.current.srcObject = null;
-      }
-
       void closeAudioContext();
 
       peer.close();
 
       peerRef.current = null;
 
-      videoSenderRef.current = null;
+      cameraSenderRef.current = null;
+
+      screenSenderRef.current = null;
 
       audioSenderRef.current = null;
 
-      remoteStreamRef.current = null;
+      cameraTransceiverRef.current = null;
+
+      screenTransceiverRef.current = null;
+
+      audioTransceiverRef.current = null;
+
+      remoteCameraStreamRef.current = null;
+
+      remoteScreenStreamRef.current = null;
 
       cameraStreamRef.current = null;
 
-      micStreamRef.current = null;
+      microphoneStreamRef.current = null;
 
       screenStreamRef.current = null;
 
-      canvasStreamRef.current = null;
-
-      cameraVideoRef.current = null;
-
-      screenVideoRef.current = null;
-
-      compositorStartedRef.current = false;
-
       pendingCandidatesRef.current = [];
-
-      partnerConnectedRef.current = false;
 
       cameraOnRef.current = false;
 
@@ -1348,11 +921,12 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       sharingRef.current = false;
     };
   }, [
-    attachRemoteStream,
+    attachRemoteCamera,
+    attachRemoteScreen,
     closeAudioContext,
     enabled,
     roomId,
-    sendVideoState,
+    sendMediaState,
     socket,
   ]);
 
@@ -1361,8 +935,14 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
    * ======================================================= */
 
   const toggleCamera = useCallback(async () => {
+    const sender = cameraSenderRef.current;
+
+    if (!sender) {
+      return;
+    }
+
     /*
-     * First camera activation.
+     * First time.
      */
 
     if (!cameraStreamRef.current) {
@@ -1390,34 +970,18 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
         const track = stream.getVideoTracks()[0];
 
         if (!track) {
-          throw new Error("Camera unavailable.");
+          return;
         }
 
         track.enabled = true;
+
+        await sender.replaceTrack(track);
 
         cameraOnRef.current = true;
 
         setCameraOn(true);
 
-        /*
-         * Start permanent output
-         * canvas if necessary.
-         */
-
-        await ensureVideoCompositor();
-
-        /*
-         * Attach camera source.
-         */
-
-        await attachCamera();
-
-        /*
-         * Girlfriend should now
-         * display our outgoing canvas.
-         */
-
-        sendVideoState(true);
+        sendMediaState();
 
         return;
       } catch (error) {
@@ -1429,10 +993,6 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       }
     }
 
-    /*
-     * Camera already exists.
-     */
-
     const track = cameraStreamRef.current.getVideoTracks()[0];
 
     if (!track) {
@@ -1441,65 +1001,40 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
     const next = !cameraOnRef.current;
 
-    track.enabled = next;
-
     cameraOnRef.current = next;
 
     setCameraOn(next);
 
-    /*
-     * Camera turned back ON.
-     */
-
     if (next) {
-      await ensureVideoCompositor();
+      track.enabled = true;
 
-      await attachCamera();
+      await sender.replaceTrack(track);
+    } else {
+      await sender.replaceTrack(null);
 
-      /*
-       * Explicitly restart playback
-       * after screen-sharing changes.
-       */
-
-      const cameraVideo = cameraVideoRef.current;
-
-      if (cameraVideo && cameraStreamRef.current) {
-        cameraVideo.srcObject = cameraStreamRef.current;
-
-        try {
-          await cameraVideo.play();
-        } catch {
-          // Ignore.
-        }
-      }
+      track.enabled = false;
     }
 
-    /*
-     * If screen sharing is active,
-     * video remains visible regardless
-     * of camera state.
-     */
-
-    sendVideoState(sharingRef.current || next);
-  }, [attachCamera, ensureVideoCompositor, sendVideoState]);
+    sendMediaState();
+  }, [sendMediaState]);
 
   /* =========================================================
    * MICROPHONE
    * ======================================================= */
 
   const toggleMicrophone = useCallback(async () => {
-    if (!micStreamRef.current) {
+    if (!microphoneStreamRef.current) {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
         });
 
-        micStreamRef.current = stream;
+        microphoneStreamRef.current = stream;
 
         const track = stream.getAudioTracks()[0];
 
         if (!track) {
-          throw new Error("Microphone unavailable.");
+          return;
         }
 
         track.enabled = true;
@@ -1508,7 +1043,7 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
 
         setMicOn(true);
 
-        await rebuildOutgoingAudio(sharingRef.current);
+        await rebuildOutgoingAudio();
 
         return;
       } catch (error) {
@@ -1520,19 +1055,19 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
       }
     }
 
-    const track = micStreamRef.current.getAudioTracks()[0];
+    const track = microphoneStreamRef.current.getAudioTracks()[0];
 
     if (!track) {
       return;
     }
 
-    track.enabled = !track.enabled;
+    micOnRef.current = !micOnRef.current;
 
-    micOnRef.current = track.enabled;
+    track.enabled = micOnRef.current;
 
-    setMicOn(track.enabled);
+    setMicOn(micOnRef.current);
 
-    await rebuildOutgoingAudio(sharingRef.current);
+    await rebuildOutgoingAudio();
   }, [rebuildOutgoingAudio]);
 
   /* =========================================================
@@ -1540,28 +1075,30 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
    * ======================================================= */
 
   const shareScreen = useCallback(async () => {
-    /*
-     * Click again = stop.
-     */
-
     if (sharingRef.current) {
       await stopScreenSharing();
 
       return;
     }
 
+    const sender = screenSenderRef.current;
+
+    if (!sender) {
+      return;
+    }
+
     try {
       /*
-       * IMPORTANT:
+       * SCREEN ONLY.
        *
-       * Screen sharing never opens
-       * or enables the camera.
+       * This does NOT touch camera.
        */
 
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
+      const stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           frameRate: {
             ideal: 30,
+
             max: 30,
           },
         },
@@ -1569,112 +1106,38 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
         audio: true,
       });
 
-      screenStreamRef.current = screenStream;
+      screenStreamRef.current = stream;
 
-      /*
-       * Start output canvas if
-       * this is our first video.
-       */
+      const videoTrack = stream.getVideoTracks()[0];
 
-      await ensureVideoCompositor();
-
-      /*
-       * Attach screen.
-       */
-
-      await attachScreen();
-
-      /*
-       * Camera stays independent.
-       *
-       * Attach it only if it was
-       * already enabled.
-       */
-
-      if (cameraOnRef.current && cameraStreamRef.current) {
-        await attachCamera();
+      if (!videoTrack) {
+        throw new Error("Screen video unavailable.");
       }
 
-      /*
-       * Screen becomes main layer.
-       */
+      await sender.replaceTrack(videoTrack);
 
       sharingRef.current = true;
 
       setSharing(true);
 
       /*
-       * Screen audio +
-       * microphone when enabled.
+       * Screen audio if browser
+       * provides it.
        */
 
-      await rebuildOutgoingAudio(true);
+      await rebuildOutgoingAudio();
 
-      /*
-       * Remote video visible.
-       */
+      sendMediaState();
 
-      sendVideoState(true);
-
-      /*
-       * Native browser
-       * Stop Sharing button.
-       */
-
-      const screenTrack = screenStream.getVideoTracks()[0];
-
-      if (screenTrack) {
-        screenTrack.onended = () => {
-          void stopScreenSharing();
-        };
-      }
+      videoTrack.onended = () => {
+        void stopScreenSharing();
+      };
     } catch (error) {
-      console.warn("Screen sharing cancelled:", error);
+      console.warn("Screen share cancelled:", error);
 
-      /*
-       * Only clean screen state.
-       *
-       * Camera must not change.
-       */
-
-      const failedScreen = screenStreamRef.current;
-
-      screenStreamRef.current = null;
-
-      failedScreen?.getTracks().forEach((track) => {
-        track.onended = null;
-
-        track.stop();
-      });
-
-      const screenVideo = screenVideoRef.current;
-
-      if (screenVideo) {
-        screenVideo.pause();
-
-        screenVideo.srcObject = null;
-
-        screenVideo.removeAttribute("src");
-
-        screenVideo.load();
-      }
-
-      sharingRef.current = false;
-
-      setSharing(false);
-
-      await rebuildOutgoingAudio(false);
-
-      sendVideoState(cameraOnRef.current);
+      await stopScreenSharing();
     }
-  }, [
-    attachCamera,
-    attachScreen,
-    ensureVideoCompositor,
-    rebuildOutgoingAudio,
-    sendVideoState,
-    stopScreenSharing,
-  ]);
+  }, [rebuildOutgoingAudio, sendMediaState, stopScreenSharing]);
 
   /* =========================================================
    * CHAT
@@ -1717,18 +1180,18 @@ export function useMovieRoom({ roomId, enabled }: UseMovieRoomOptions) {
     });
   }, [roomId, socket]);
 
-  /* =========================================================
-   * RETURN
-   * ======================================================= */
-
   return {
     partnerConnected,
 
     webRtcConnected,
 
-    remoteVideoAvailable,
+    remoteCameraAvailable,
 
-    remoteVideoRef,
+    remoteScreenAvailable,
+
+    remoteCameraVideoRef,
+
+    remoteScreenVideoRef,
 
     micOn,
 

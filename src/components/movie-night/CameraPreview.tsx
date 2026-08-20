@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react";
 
 interface CameraPreviewProps {
   enabled: boolean;
-
   stream: MediaStream | null;
 }
 
@@ -26,23 +25,19 @@ export default function CameraPreview({ enabled, stream }: CameraPreviewProps) {
 
     video.srcObject = stream;
 
-    void video.play().catch(() => {
-      // Ignore autoplay issue.
-    });
+    void video.play().catch(() => {});
 
     return () => {
-      if (video.srcObject === stream) {
-        video.srcObject = null;
-      }
+      video.srcObject = null;
     };
   }, [enabled, stream]);
 
-  if (!enabled || !stream) {
+  if (!enabled) {
     return null;
   }
 
   return (
-    <div className="absolute bottom-4 right-4 z-30 w-36 overflow-hidden rounded-2xl border border-white/20 bg-black shadow-2xl shadow-black/60 sm:bottom-5 sm:right-5 sm:w-52">
+    <div className="absolute bottom-3 left-3 z-30 w-[30%] min-w-[105px] max-w-[180px] overflow-hidden rounded-xl border border-white/20 bg-black shadow-2xl shadow-black/60 sm:bottom-4 sm:left-4 sm:max-w-[210px]">
       <div className="relative aspect-video bg-[#111]">
         <video
           ref={videoRef}
@@ -52,7 +47,7 @@ export default function CameraPreview({ enabled, stream }: CameraPreviewProps) {
           className="h-full w-full scale-x-[-1] object-cover"
         />
 
-        <div className="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-[10px] text-white backdrop-blur-md">
+        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1.5 rounded-full bg-black/75 px-2 py-1 text-[9px] text-white backdrop-blur-md sm:bottom-2 sm:left-2 sm:px-2.5 sm:text-[10px]">
           <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
           You
         </div>

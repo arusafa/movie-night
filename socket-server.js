@@ -1,21 +1,8 @@
 const http = require("http");
+
 const { Server } = require("socket.io");
 
 const port = Number(process.env.PORT) || 3001;
-
-/*
- * =========================================================
- * ALLOWED FRONTEND ORIGINS
- * =========================================================
- *
- * Local development is always allowed.
- *
- * In Railway, CLIENT_ORIGINS can contain:
- *
- * https://movie-night-fawn-zeta.vercel.app
- *
- * Multiple domains can be comma-separated.
- */
 
 const productionOrigins = process.env.CLIENT_ORIGINS
   ? process.env.CLIENT_ORIGINS.split(",")
@@ -31,23 +18,7 @@ const allowedOrigins = [
 
 console.log("🌐 Allowed origins:", allowedOrigins);
 
-/*
- * =========================================================
- * HTTP SERVER
- * =========================================================
- */
-
 const httpServer = http.createServer((req, res) => {
-  /*
-   * Simple health endpoint.
-   *
-   * Visit:
-   *
-   * https://YOUR-RAILWAY-URL/health
-   *
-   * to verify Railway is running.
-   */
-
   if (req.url === "/health") {
     res.writeHead(200, {
       "Content-Type": "application/json",
@@ -70,21 +41,9 @@ const httpServer = http.createServer((req, res) => {
   res.end("Movie Night signaling server");
 });
 
-/*
- * =========================================================
- * SOCKET.IO
- * =========================================================
- */
-
 const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
-      /*
-       * Requests without Origin,
-       * such as health checks,
-       * are allowed.
-       */
-
       if (!origin) {
         callback(null, true);
 
@@ -103,14 +62,7 @@ const io = new Server(httpServer, {
     },
 
     methods: ["GET", "POST"],
-
-    credentials: false,
   },
-
-  /*
-   * Allow both WebSocket
-   * and HTTP fallback.
-   */
 
   transports: ["websocket", "polling"],
 
@@ -119,20 +71,12 @@ const io = new Server(httpServer, {
   pingInterval: 25000,
 });
 
-/*
- * =========================================================
- * CONNECTION
- * =========================================================
- */
-
 io.on("connection", (socket) => {
   console.log("✅ Socket connected:", socket.id);
 
-  /*
-   * =====================================================
-   * JOIN ROOM
-   * =====================================================
-   */
+  /* =======================================================
+   * JOIN
+   * ===================================================== */
 
   socket.on("join-room", async (roomId) => {
     if (typeof roomId !== "string") {
@@ -145,11 +89,6 @@ io.on("connection", (socket) => {
       return;
     }
 
-    /*
-     * Leave previous room
-     * if necessary.
-     */
-
     const oldRoomId = socket.data.roomId;
 
     if (oldRoomId && oldRoomId !== cleanRoomId) {
@@ -160,19 +99,11 @@ io.on("connection", (socket) => {
 
     const room = io.sockets.adapter.rooms.get(cleanRoomId);
 
-    /*
-     * Already joined.
-     */
-
     if (room?.has(socket.id)) {
       return;
     }
 
     const userCount = room?.size ?? 0;
-
-    /*
-     * Maximum two people.
-     */
 
     if (userCount >= 2) {
       socket.emit("room-full");
@@ -188,113 +119,74 @@ io.on("connection", (socket) => {
 
     console.log(`👤 ${socket.id} joined ${cleanRoomId}`, {
       isFirstUser,
-      userCount: userCount + 1,
     });
-
-    /*
-     * Tell this browser
-     * whether it is person
-     * #1 or #2.
-     */
 
     socket.emit("room-joined", {
       isFirstUser,
     });
-
-    /*
-     * Person #2 arrived.
-     *
-     * Notify person #1 only.
-     */
 
     if (!isFirstUser) {
       socket.to(cleanRoomId).emit("user-joined");
     }
   });
 
-  /*
-   * =====================================================
-   * WEBRTC OFFER
-   * =====================================================
-   */
+  /* =======================================================
+   * OFFER
+   * ===================================================== */
 
   socket.on("offer", ({ roomId, offer }) => {
     if (!roomId || !offer) {
       return;
     }
 
-    console.log("📤 OFFER:", socket.id, "->", roomId);
-
     socket.to(roomId).emit("offer", offer);
   });
 
-  /*
-   * =====================================================
-   * WEBRTC ANSWER
-   * =====================================================
-   */
+  /* =======================================================
+   * ANSWER
+   * ===================================================== */
 
   socket.on("answer", ({ roomId, answer }) => {
     if (!roomId || !answer) {
       return;
     }
 
-    console.log("📥 ANSWER:", socket.id, "->", roomId);
-
     socket.to(roomId).emit("answer", answer);
   });
 
-  /*
-   * =====================================================
-   * ICE CANDIDATE
-   * =====================================================
-   */
+  /* =======================================================
+   * ICE
+   * ===================================================== */
 
   socket.on("ice-candidate", ({ roomId, candidate }) => {
     if (!roomId || !candidate) {
       return;
     }
 
-    console.log("🧊 ICE:", socket.id, candidate.type ?? "");
-
     socket.to(roomId).emit("ice-candidate", candidate);
   });
 
-  /*
-   * =====================================================
-   * VIDEO STATE
-   * =====================================================
-   */
+  /* =======================================================
+   * MEDIA STATE
+   *
+   * Camera and screen are now independent.
+   * ===================================================== */
 
-  socket.on("video-state", ({ roomId, active }) => {
+  socket.on("media-state", ({ roomId, camera, screen }) => {
     if (!roomId) {
       return;
     }
 
-    socket.to(roomId).emit("video-state", {
-      active: Boolean(active),
+    socket.to(roomId).emit("media-state", {
+      camera: Boolean(camera),
+
+      screen: Boolean(screen),
     });
   });
 
-  /*
-   * =====================================================
-   * SCREEN SHARE STOP
-   * =====================================================
-   */
-
-  socket.on("screen-share-stopped", ({ roomId }) => {
-    if (!roomId) {
-      return;
-    }
-
-    socket.to(roomId).emit("screen-share-stopped");
-  });
-
-  /*
-   * =====================================================
+  /* =======================================================
    * CHAT
-   * =====================================================
-   */
+   * ===================================================== */
 
   socket.on("chat-message", ({ roomId, message }) => {
     if (!roomId || typeof message !== "string") {
@@ -312,11 +204,9 @@ io.on("connection", (socket) => {
     });
   });
 
-  /*
-   * =====================================================
+  /* =======================================================
    * LOVE
-   * =====================================================
-   */
+   * ===================================================== */
 
   socket.on("send-love", ({ roomId }) => {
     if (!roomId) {
@@ -326,11 +216,9 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("receive-love");
   });
 
-  /*
-   * =====================================================
-   * LEAVE ROOM
-   * =====================================================
-   */
+  /* =======================================================
+   * LEAVE
+   * ===================================================== */
 
   socket.on("leave-room", (roomId) => {
     if (typeof roomId !== "string") {
@@ -346,15 +234,11 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("user-left");
 
     socket.data.roomId = undefined;
-
-    console.log("👋 Left room:", socket.id, roomId);
   });
 
-  /*
-   * =====================================================
+  /* =======================================================
    * DISCONNECT
-   * =====================================================
-   */
+   * ===================================================== */
 
   socket.on("disconnect", (reason) => {
     const roomId = socket.data.roomId;
@@ -368,12 +252,6 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("user-left");
   });
 });
-
-/*
- * =========================================================
- * START
- * =========================================================
- */
 
 httpServer.listen(port, "0.0.0.0", () => {
   console.log(`🚀 Movie Night signaling server running on port ${port}`);
