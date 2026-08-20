@@ -47,13 +47,13 @@ export default function MovieStage({
   return (
     <section className="flex h-full min-h-0 flex-col bg-[#08060c]">
       {/* ================================================= */}
-      {/* VIDEO                                            */}
+      {/* VIDEO AREA                                        */}
       {/* ================================================= */}
 
       <div className="min-h-0 flex-1 p-3 sm:p-4">
         <div className="relative h-full min-h-[220px] w-full overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
           {/* ================================================= */}
-          {/* REMOTE VIDEO                                     */}
+          {/* PARTNER VIDEO                                     */}
           {/* ================================================= */}
 
           <video
@@ -66,7 +66,7 @@ export default function MovieStage({
           />
 
           {/* ================================================= */}
-          {/* EMPTY STATE                                      */}
+          {/* EMPTY STATE                                       */}
           {/* ================================================= */}
 
           {!remoteVideoAvailable && (
@@ -104,7 +104,7 @@ export default function MovieStage({
           )}
 
           {/* ================================================= */}
-          {/* SCREEN SHARE BADGE                               */}
+          {/* SCREEN SHARE BADGE                                */}
           {/* ================================================= */}
 
           {sharing && (
@@ -115,7 +115,7 @@ export default function MovieStage({
           )}
 
           {/* ================================================= */}
-          {/* YOUR LOCAL CAMERA PREVIEW                         */}
+          {/* YOUR LOCAL CAMERA                                 */}
           {/* ================================================= */}
 
           <CameraPreview enabled={cameraOn} stream={localStream} />
@@ -135,17 +135,13 @@ export default function MovieStage({
             onClick={onToggleCamera}
             title={cameraOn ? "Turn camera off" : "Turn camera on"}
             aria-label={cameraOn ? "Turn camera off" : "Turn camera on"}
-            className={`flex h-12 min-w-12 items-center justify-center gap-2 rounded-xl px-3 transition-all active:scale-95 ${
+            className={`flex h-12 min-w-12 items-center justify-center rounded-xl px-3 transition-all active:scale-95 ${
               cameraOn
                 ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400"
                 : "bg-white/[0.07] text-white/80 hover:bg-white/10"
             }`}
           >
             <span className="text-lg">{cameraOn ? "📹" : "🚫"}</span>
-
-            <span className="hidden text-xs font-medium xl:inline">
-              {cameraOn ? "Camera" : "Camera off"}
-            </span>
           </button>
 
           {/* MICROPHONE */}
@@ -155,17 +151,13 @@ export default function MovieStage({
             onClick={onToggleMicrophone}
             title={micOn ? "Mute microphone" : "Turn microphone on"}
             aria-label={micOn ? "Mute microphone" : "Turn microphone on"}
-            className={`flex h-12 min-w-12 items-center justify-center gap-2 rounded-xl px-3 transition-all active:scale-95 ${
+            className={`flex h-12 min-w-12 items-center justify-center rounded-xl px-3 transition-all active:scale-95 ${
               micOn
                 ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400"
                 : "bg-white/[0.07] text-white/80 hover:bg-white/10"
             }`}
           >
             <span className="text-lg">{micOn ? "🎤" : "🔇"}</span>
-
-            <span className="hidden text-xs font-medium xl:inline">
-              {micOn ? "Mic" : "Muted"}
-            </span>
           </button>
 
           {/* SCREEN SHARE */}
@@ -175,17 +167,13 @@ export default function MovieStage({
             onClick={onShareScreen}
             title={sharing ? "Stop sharing" : "Share screen"}
             aria-label={sharing ? "Stop sharing" : "Share screen"}
-            className={`flex h-12 min-w-12 items-center justify-center gap-2 rounded-xl px-3 transition-all active:scale-95 ${
+            className={`flex h-12 min-w-12 items-center justify-center rounded-xl px-3 transition-all active:scale-95 ${
               sharing
                 ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400"
                 : "bg-white/[0.07] text-white/80 hover:bg-white/10"
             }`}
           >
             <span className="text-lg">🖥️</span>
-
-            <span className="hidden text-xs font-medium xl:inline">
-              {sharing ? "Stop" : "Share"}
-            </span>
           </button>
 
           {/* LOVE */}
@@ -201,15 +189,17 @@ export default function MovieStage({
           </button>
         </div>
 
-        {/* STATUS */}
+        {/* ================================================= */}
+        {/* CURRENT LOCAL STATE                               */}
+        {/* ================================================= */}
 
-        {(sharing || cameraOn) && (
+        {(cameraOn || sharing) && (
           <p className="mt-2 text-center text-[10px] text-white/30">
             {sharing && cameraOn
-              ? "Sharing your screen with your camera in the corner."
+              ? "Sharing screen + camera."
               : sharing
                 ? "Sharing your screen."
-                : "Sharing your camera."}
+                : "Camera is on."}
           </p>
         )}
       </div>

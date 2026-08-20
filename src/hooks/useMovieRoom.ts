@@ -24,11 +24,9 @@ export function useMovieRoom({
 }: UseMovieRoomOptions) {
   const socket = getSocket();
 
-  /*
-   * =========================================================
-   * STATE
-   * =========================================================
-   */
+  /* =========================================================
+   * UI STATE
+   * ======================================================= */
 
   const [
     partnerConnected,
@@ -97,11 +95,9 @@ export function useMovieRoom({
     setLoveNotification,
   ] = useState(false);
 
-  /*
-   * =========================================================
-   * WEBRTC REFS
-   * =========================================================
-   */
+  /* =========================================================
+   * WEBRTC
+   * ======================================================= */
 
   const peerRef =
     useRef<RTCPeerConnection | null>(
@@ -118,11 +114,9 @@ export function useMovieRoom({
       null
     );
 
-  /*
-   * =========================================================
-   * REMOTE
-   * =========================================================
-   */
+  /* =========================================================
+   * REMOTE MEDIA
+   * ======================================================= */
 
   const remoteVideoRef =
     useRef<HTMLVideoElement | null>(
@@ -134,11 +128,9 @@ export function useMovieRoom({
       null
     );
 
-  /*
-   * =========================================================
+  /* =========================================================
    * LOCAL MEDIA
-   * =========================================================
-   */
+   * ======================================================= */
 
   const cameraStreamRef =
     useRef<MediaStream | null>(
@@ -155,11 +147,9 @@ export function useMovieRoom({
       null
     );
 
-  /*
-   * =========================================================
+  /* =========================================================
    * VIDEO COMPOSITOR
-   * =========================================================
-   */
+   * ======================================================= */
 
   const canvasStreamRef =
     useRef<MediaStream | null>(
@@ -184,22 +174,18 @@ export function useMovieRoom({
       null
     );
 
-  /*
-   * =========================================================
+  /* =========================================================
    * AUDIO
-   * =========================================================
-   */
+   * ======================================================= */
 
   const audioContextRef =
     useRef<AudioContext | null>(
       null
     );
 
-  /*
-   * =========================================================
-   * CURRENT STATE REFS
-   * =========================================================
-   */
+  /* =========================================================
+   * LIVE STATE REFS
+   * ======================================================= */
 
   const partnerConnectedRef =
     useRef(false);
@@ -213,22 +199,18 @@ export function useMovieRoom({
   const sharingRef =
     useRef(false);
 
-  /*
-   * =========================================================
+  /* =========================================================
    * ICE
-   * =========================================================
-   */
+   * ======================================================= */
 
   const pendingCandidatesRef =
     useRef<
       RTCIceCandidateInit[]
     >([]);
 
-  /*
-   * =========================================================
+  /* =========================================================
    * TIMERS
-   * =========================================================
-   */
+   * ======================================================= */
 
   const joinTimeoutRef =
     useRef<
@@ -251,11 +233,9 @@ export function useMovieRoom({
       > | null
     >(null);
 
-  /*
-   * =========================================================
-   * REMOTE VIDEO
-   * =========================================================
-   */
+  /* =========================================================
+   * REMOTE STREAM
+   * ======================================================= */
 
   const attachRemoteStream =
     useCallback(() => {
@@ -285,11 +265,9 @@ export function useMovieRoom({
         .catch(() => {});
     }, []);
 
-  /*
-   * =========================================================
-   * VIDEO STATE
-   * =========================================================
-   */
+  /* =========================================================
+   * VIDEO VISIBILITY SIGNAL
+   * ======================================================= */
 
   const sendVideoState =
     useCallback(
@@ -308,24 +286,25 @@ export function useMovieRoom({
       ]
     );
 
-  /*
-   * =========================================================
-   * AUDIO
-   * =========================================================
-   */
+  /* =========================================================
+   * AUDIO HELPERS
+   * ======================================================= */
 
   const closeAudioContext =
     useCallback(
       async () => {
-        if (
-          !audioContextRef.current
-        ) {
+        const context =
+          audioContextRef.current;
+
+        if (!context) {
           return;
         }
 
         try {
-          await audioContextRef.current.close();
-        } catch {}
+          await context.close();
+        } catch {
+          // Ignore cleanup error.
+        }
 
         audioContextRef.current =
           null;
@@ -356,7 +335,8 @@ export function useMovieRoom({
             ?.getAudioTracks()[0];
 
         /*
-         * No screen audio.
+         * No screen audio:
+         * send microphone only.
          */
         if (
           !includeScreenAudio ||
@@ -373,7 +353,9 @@ export function useMovieRoom({
         }
 
         /*
-         * Screen audio + optional mic.
+         * Screen audio exists.
+         * Mix screen audio +
+         * microphone if mic is ON.
          */
 
         const context =
@@ -388,12 +370,17 @@ export function useMovieRoom({
         ) {
           try {
             await context.resume();
-          } catch {}
+          } catch {
+            // Ignore.
+          }
         }
 
         const destination =
           context.createMediaStreamDestination();
 
+        /*
+         * Screen audio.
+         */
         const screenSource =
           context.createMediaStreamSource(
             new MediaStream([
@@ -405,6 +392,9 @@ export function useMovieRoom({
           destination
         );
 
+        /*
+         * Microphone.
+         */
         if (
           micTrack &&
           micOnRef.current
@@ -421,12 +411,12 @@ export function useMovieRoom({
           );
         }
 
-        const mixedTrack =
+        const outputTrack =
           destination.stream
             .getAudioTracks()[0];
 
         await sender.replaceTrack(
-          mixedTrack ?? null
+          outputTrack ?? null
         );
       },
       [
@@ -434,114 +424,9 @@ export function useMovieRoom({
       ]
     );
 
-  /*
-   * =========================================================
-   * CAMERA FULL SCREEN
-   * =========================================================
-   */
-
-  const drawCameraFull =
-    useCallback(
-      (
-        ctx:
-          CanvasRenderingContext2D,
-
-        video:
-          HTMLVideoElement,
-
-        canvas:
-          HTMLCanvasElement
-      ) => {
-        const sourceWidth =
-          video.videoWidth ||
-          1280;
-
-        const sourceHeight =
-          video.videoHeight ||
-          720;
-
-        const sourceRatio =
-          sourceWidth /
-          sourceHeight;
-
-        const targetRatio =
-          canvas.width /
-          canvas.height;
-
-        let cropWidth =
-          sourceWidth;
-
-        let cropHeight =
-          sourceHeight;
-
-        let cropX = 0;
-        let cropY = 0;
-
-        if (
-          sourceRatio >
-          targetRatio
-        ) {
-          cropWidth =
-            sourceHeight *
-            targetRatio;
-
-          cropX =
-            (
-              sourceWidth -
-              cropWidth
-            ) / 2;
-        } else {
-          cropHeight =
-            sourceWidth /
-            targetRatio;
-
-          cropY =
-            (
-              sourceHeight -
-              cropHeight
-            ) / 2;
-        }
-
-        ctx.save();
-
-        /*
-         * Mirror camera.
-         */
-
-        ctx.translate(
-          canvas.width,
-          0
-        );
-
-        ctx.scale(
-          -1,
-          1
-        );
-
-        ctx.drawImage(
-          video,
-
-          cropX,
-          cropY,
-          cropWidth,
-          cropHeight,
-
-          0,
-          0,
-          canvas.width,
-          canvas.height
-        );
-
-        ctx.restore();
-      },
-      []
-    );
-
-  /*
-   * =========================================================
-   * SCREEN FULL
-   * =========================================================
-   */
+  /* =========================================================
+   * DRAW SCREEN
+   * ======================================================= */
 
   const drawScreen =
     useCallback(
@@ -555,78 +440,91 @@ export function useMovieRoom({
         canvas:
           HTMLCanvasElement
       ) => {
+        if (
+          !video.videoWidth ||
+          !video.videoHeight
+        ) {
+          return;
+        }
+
         const sourceWidth =
-          video.videoWidth ||
-          1280;
+          video.videoWidth;
 
         const sourceHeight =
-          video.videoHeight ||
-          720;
+          video.videoHeight;
 
         const sourceRatio =
           sourceWidth /
           sourceHeight;
 
-        const targetRatio =
+        const canvasRatio =
           canvas.width /
           canvas.height;
 
-        let width =
+        let drawWidth =
           canvas.width;
 
-        let height =
+        let drawHeight =
           canvas.height;
 
-        let x = 0;
-        let y = 0;
+        let drawX = 0;
+        let drawY = 0;
+
+        /*
+         * object-contain:
+         *
+         * show the complete shared
+         * screen without cropping.
+         */
 
         if (
           sourceRatio >
-          targetRatio
+          canvasRatio
         ) {
-          width =
+          drawWidth =
             canvas.width;
 
-          height =
-            width /
+          drawHeight =
+            drawWidth /
             sourceRatio;
 
-          y =
+          drawY =
             (
               canvas.height -
-              height
+              drawHeight
             ) / 2;
         } else {
-          height =
+          drawHeight =
             canvas.height;
 
-          width =
-            height *
+          drawWidth =
+            drawHeight *
             sourceRatio;
 
-          x =
+          drawX =
             (
               canvas.width -
-              width
+              drawWidth
             ) / 2;
         }
 
         ctx.drawImage(
           video,
-          x,
-          y,
-          width,
-          height
+          drawX,
+          drawY,
+          drawWidth,
+          drawHeight
         );
       },
       []
     );
 
-  /*
-   * =========================================================
-   * CAMERA PIP
-   * =========================================================
-   */
+  /* =========================================================
+   * DRAW CAMERA PIP
+   *
+   * Camera is ALWAYS bottom-right.
+   * Never full screen.
+   * ======================================================= */
 
   const drawCameraPip =
     useCallback(
@@ -642,7 +540,6 @@ export function useMovieRoom({
       ) => {
         const width = 300;
         const height = 169;
-
         const margin = 28;
 
         const x =
@@ -682,6 +579,9 @@ export function useMovieRoom({
         let cropX = 0;
         let cropY = 0;
 
+        /*
+         * object-cover camera crop.
+         */
         if (
           sourceRatio >
           targetRatio
@@ -707,10 +607,14 @@ export function useMovieRoom({
             ) / 2;
         }
 
+        /*
+         * Camera shadow + clipping.
+         */
+
         ctx.save();
 
         ctx.shadowColor =
-          "rgba(0,0,0,0.7)";
+          "rgba(0,0,0,0.75)";
 
         ctx.shadowBlur = 30;
 
@@ -729,7 +633,7 @@ export function useMovieRoom({
         ctx.clip();
 
         /*
-         * Mirror PiP.
+         * Mirror selfie camera.
          */
 
         ctx.translate(
@@ -828,11 +732,9 @@ export function useMovieRoom({
       []
     );
 
-  /*
-   * =========================================================
-   * PERMANENT COMPOSITOR
-   * =========================================================
-   */
+  /* =========================================================
+   * PERMANENT VIDEO COMPOSITOR
+   * ======================================================= */
 
   const ensureVideoCompositor =
     useCallback(
@@ -853,10 +755,10 @@ export function useMovieRoom({
         }
 
         /*
-         * Camera video.
+         * Hidden camera video.
          *
-         * Creating this element does NOT
-         * open the camera.
+         * Creating this does NOT
+         * request camera permission.
          */
 
         const cameraVideo =
@@ -884,11 +786,13 @@ export function useMovieRoom({
 
           try {
             await cameraVideo.play();
-          } catch {}
+          } catch {
+            // Ignore.
+          }
         }
 
         /*
-         * Screen video.
+         * Hidden screen video.
          */
 
         const screenVideo =
@@ -916,11 +820,13 @@ export function useMovieRoom({
 
           try {
             await screenVideo.play();
-          } catch {}
+          } catch {
+            // Ignore.
+          }
         }
 
         /*
-         * Canvas.
+         * Permanent 16:9 output.
          */
 
         const canvas =
@@ -942,14 +848,49 @@ export function useMovieRoom({
           );
         }
 
+        /*
+         * ===============================================
+         * PERMANENT DRAW LOOP
+         * ===============================================
+         *
+         * Drawing order:
+         *
+         * 1. Black
+         * 2. Screen if sharing
+         * 3. Camera PiP if camera ON
+         *
+         * This guarantees:
+         *
+         * Camera only:
+         * black + PiP
+         *
+         * Screen only:
+         * screen
+         *
+         * Screen + camera:
+         * screen + PiP
+         */
+
         const draw =
           () => {
             /*
-             * Background.
+             * VERY IMPORTANT:
+             *
+             * clear every frame so an
+             * old screen-share frame can
+             * never remain after sharing
+             * stops.
              */
 
+            ctx.clearRect(
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+
             ctx.fillStyle =
-              "#000";
+              "#000000";
 
             ctx.fillRect(
               0,
@@ -958,66 +899,64 @@ export function useMovieRoom({
               canvas.height
             );
 
-            const cameraVideo =
+            const currentCamera =
               cameraVideoRef.current;
 
-            const screenVideo =
+            const currentScreen =
               screenVideoRef.current;
-
-            const cameraReady =
-              Boolean(
-                cameraOnRef.current &&
-                  cameraVideo &&
-                  cameraVideo.readyState >=
-                    HTMLMediaElement.HAVE_CURRENT_DATA
-              );
 
             const screenReady =
               Boolean(
                 sharingRef.current &&
-                  screenVideo &&
-                  screenVideo.readyState >=
-                    HTMLMediaElement.HAVE_CURRENT_DATA
+                  currentScreen &&
+                  currentScreen.srcObject &&
+                  currentScreen.readyState >=
+                    HTMLMediaElement.HAVE_CURRENT_DATA &&
+                  currentScreen.videoWidth >
+                    0 &&
+                  currentScreen.videoHeight >
+                    0
+              );
+
+            const cameraReady =
+              Boolean(
+                cameraOnRef.current &&
+                  currentCamera &&
+                  currentCamera.srcObject &&
+                  currentCamera.readyState >=
+                    HTMLMediaElement.HAVE_CURRENT_DATA &&
+                  currentCamera.videoWidth >
+                    0 &&
+                  currentCamera.videoHeight >
+                    0
               );
 
             /*
-             * SCREEN
+             * SCREEN = MAIN CONTENT
              */
+
             if (
               screenReady &&
-              screenVideo
+              currentScreen
             ) {
               drawScreen(
                 ctx,
-                screenVideo,
+                currentScreen,
                 canvas
               );
-
-              /*
-               * SCREEN + CAMERA
-               */
-              if (
-                cameraReady &&
-                cameraVideo
-              ) {
-                drawCameraPip(
-                  ctx,
-                  cameraVideo,
-                  canvas
-                );
-              }
             }
 
             /*
-             * CAMERA ONLY
+             * CAMERA = ALWAYS PIP
              */
-            else if (
+
+            if (
               cameraReady &&
-              cameraVideo
+              currentCamera
             ) {
-              drawCameraFull(
+              drawCameraPip(
                 ctx,
-                cameraVideo,
+                currentCamera,
                 canvas
               );
             }
@@ -1030,6 +969,11 @@ export function useMovieRoom({
 
         draw();
 
+        /*
+         * One permanent WebRTC
+         * video track.
+         */
+
         const canvasStream =
           canvas.captureStream(
             30
@@ -1038,35 +982,36 @@ export function useMovieRoom({
         canvasStreamRef.current =
           canvasStream;
 
-        const videoTrack =
+        const track =
           canvasStream
             .getVideoTracks()[0];
 
-        if (!videoTrack) {
+        if (!track) {
           throw new Error(
             "Canvas video track unavailable."
           );
         }
 
         await sender.replaceTrack(
-          videoTrack
+          track
         );
 
         compositorStartedRef.current =
           true;
+
+        console.log(
+          "[Video] compositor started"
+        );
       },
       [
-        drawCameraFull,
         drawCameraPip,
         drawScreen,
       ]
     );
 
-  /*
-   * =========================================================
+  /* =========================================================
    * ATTACH CAMERA
-   * =========================================================
-   */
+   * ======================================================= */
 
   const attachCamera =
     useCallback(
@@ -1084,21 +1029,26 @@ export function useMovieRoom({
           return;
         }
 
-        video.srcObject =
-          stream;
+        if (
+          video.srcObject !==
+          stream
+        ) {
+          video.srcObject =
+            stream;
+        }
 
         try {
           await video.play();
-        } catch {}
+        } catch {
+          // Ignore.
+        }
       },
       []
     );
 
-  /*
-   * =========================================================
+  /* =========================================================
    * ATTACH SCREEN
-   * =========================================================
-   */
+   * ======================================================= */
 
   const attachScreen =
     useCallback(
@@ -1116,31 +1066,66 @@ export function useMovieRoom({
           return;
         }
 
-        video.srcObject =
-          stream;
+        if (
+          video.srcObject !==
+          stream
+        ) {
+          video.srcObject =
+            stream;
+        }
 
         try {
           await video.play();
-        } catch {}
+        } catch {
+          // Ignore.
+        }
       },
       []
     );
 
-  /*
-   * =========================================================
-   * STOP SCREEN
-   * =========================================================
-   */
+  /* =========================================================
+   * STOP SCREEN SHARING
+   * ======================================================= */
 
   const stopScreenSharing =
     useCallback(
       async () => {
+        if (
+          !sharingRef.current &&
+          !screenStreamRef.current
+        ) {
+          return;
+        }
+
+        console.log(
+          "[Video] stopping screen share"
+        );
+
+        /*
+         * FIRST:
+         *
+         * Turn sharing off.
+         *
+         * The compositor immediately
+         * stops drawing the screen.
+         */
+
         sharingRef.current =
           false;
 
         setSharing(false);
 
-        screenStreamRef.current
+        /*
+         * Remove native screen capture.
+         */
+
+        const screenStream =
+          screenStreamRef.current;
+
+        screenStreamRef.current =
+          null;
+
+        screenStream
           ?.getTracks()
           .forEach(
             (track) => {
@@ -1151,22 +1136,45 @@ export function useMovieRoom({
             }
           );
 
-        screenStreamRef.current =
-          null;
+        /*
+         * Completely detach the
+         * old screen video.
+         */
 
-        const video =
+        const screenVideo =
           screenVideoRef.current;
 
-        if (video) {
-          video.pause();
+        if (screenVideo) {
+          screenVideo.pause();
 
-          video.srcObject =
+          screenVideo.srcObject =
             null;
+
+          screenVideo.removeAttribute(
+            "src"
+          );
+
+          screenVideo.load();
         }
+
+        /*
+         * Restore normal microphone
+         * configuration.
+         */
 
         await rebuildOutgoingAudio(
           false
         );
+
+        /*
+         * Camera remains independent.
+         *
+         * Camera ON:
+         * keep remote video visible.
+         *
+         * Camera OFF:
+         * hide remote video.
+         */
 
         sendVideoState(
           cameraOnRef.current
@@ -1187,23 +1195,17 @@ export function useMovieRoom({
       ]
     );
 
-  /*
-   * =========================================================
-   * WEBRTC
-   * =========================================================
-   */
+  /* =========================================================
+   * WEBRTC + SOCKET
+   * ======================================================= */
 
   useEffect(() => {
     if (!enabled) {
       return;
     }
 
-    let disposed =
-      false;
-
-    let isCaller =
-      false;
-
+    let disposed = false;
+    let isCaller = false;
     let restartAttempted =
       false;
 
@@ -1227,14 +1229,14 @@ export function useMovieRoom({
       peer;
 
     /*
-     * Remote MediaStream.
+     * Remote stream.
      */
 
     remoteStreamRef.current =
       new MediaStream();
 
     /*
-     * Persistent video transceiver.
+     * Persistent video sender.
      */
 
     const videoTransceiver =
@@ -1250,7 +1252,7 @@ export function useMovieRoom({
       videoTransceiver.sender;
 
     /*
-     * Persistent audio transceiver.
+     * Persistent audio sender.
      */
 
     const audioTransceiver =
@@ -1265,11 +1267,9 @@ export function useMovieRoom({
     audioSenderRef.current =
       audioTransceiver.sender;
 
-    /*
-     * =====================================================
+    /* =====================================================
      * REMOTE TRACK
-     * =====================================================
-     */
+     * =================================================== */
 
     peer.ontrack =
       (event) => {
@@ -1314,11 +1314,9 @@ export function useMovieRoom({
           };
       };
 
-    /*
-     * =====================================================
-     * ICE
-     * =====================================================
-     */
+    /* =====================================================
+     * LOCAL ICE
+     * =================================================== */
 
     peer.onicecandidate =
       (event) => {
@@ -1329,22 +1327,13 @@ export function useMovieRoom({
           return;
         }
 
-        const candidate =
-          event.candidate;
-
-        console.log(
-          "[WebRTC] local ICE:",
-          candidate.type,
-          candidate.protocol
-        );
-
         socket.emit(
           "ice-candidate",
           {
             roomId,
 
             candidate:
-              candidate.toJSON(),
+              event.candidate.toJSON(),
           }
         );
       };
@@ -1385,7 +1374,7 @@ export function useMovieRoom({
         }
 
         /*
-         * One automatic ICE restart.
+         * One ICE restart attempt.
          */
 
         if (
@@ -1407,11 +1396,9 @@ export function useMovieRoom({
         }
       };
 
-    /*
-     * =====================================================
-     * ICE QUEUE
-     * =====================================================
-     */
+    /* =====================================================
+     * PENDING ICE
+     * =================================================== */
 
     const flushCandidates =
       async () => {
@@ -1436,20 +1423,19 @@ export function useMovieRoom({
             await peer.addIceCandidate(
               candidate
             );
-          } catch {}
+          } catch {
+            // Ignore stale candidate.
+          }
         }
       };
 
-    /*
-     * =====================================================
+    /* =====================================================
      * CREATE OFFER
-     * =====================================================
-     */
+     * =================================================== */
 
     const createOffer =
       async (
-        iceRestart =
-          false
+        iceRestart = false
       ) => {
         if (
           disposed ||
@@ -1498,11 +1484,9 @@ export function useMovieRoom({
         }
       };
 
-    /*
-     * =====================================================
+    /* =====================================================
      * ROOM JOINED
-     * =====================================================
-     */
+     * =================================================== */
 
     const handleRoomJoined =
       ({
@@ -1538,16 +1522,13 @@ export function useMovieRoom({
         );
       };
 
-    /*
-     * =====================================================
-     * SECOND USER JOINED
-     * =====================================================
-     */
+    /* =====================================================
+     * PARTNER JOINED
+     * =================================================== */
 
     const handleUserJoined =
       async () => {
-        isCaller =
-          true;
+        isCaller = true;
 
         partnerConnectedRef.current =
           true;
@@ -1579,8 +1560,8 @@ export function useMovieRoom({
           );
 
         /*
-         * Give user #2 a moment
-         * to attach socket listeners.
+         * Let second browser finish
+         * attaching listeners.
          */
 
         await new Promise(
@@ -1601,11 +1582,9 @@ export function useMovieRoom({
         );
       };
 
-    /*
-     * =====================================================
-     * OFFER
-     * =====================================================
-     */
+    /* =====================================================
+     * RECEIVE OFFER
+     * =================================================== */
 
     const handleOffer =
       async (
@@ -1660,11 +1639,9 @@ export function useMovieRoom({
         }
       };
 
-    /*
-     * =====================================================
-     * ANSWER
-     * =====================================================
-     */
+    /* =====================================================
+     * RECEIVE ANSWER
+     * =================================================== */
 
     const handleAnswer =
       async (
@@ -1690,17 +1667,15 @@ export function useMovieRoom({
           await flushCandidates();
         } catch (error) {
           console.warn(
-            "[WebRTC] answer handling:",
+            "[WebRTC] answer:",
             error
           );
         }
       };
 
-    /*
-     * =====================================================
+    /* =====================================================
      * REMOTE ICE
-     * =====================================================
-     */
+     * =================================================== */
 
     const handleIceCandidate =
       async (
@@ -1725,19 +1700,14 @@ export function useMovieRoom({
           await peer.addIceCandidate(
             candidate
           );
-        } catch (error) {
-          console.warn(
-            "[WebRTC] ICE candidate ignored:",
-            error
-          );
+        } catch {
+          // Ignore stale candidate.
         }
       };
 
-    /*
-     * =====================================================
+    /* =====================================================
      * VIDEO STATE
-     * =====================================================
-     */
+     * =================================================== */
 
     const handleVideoState =
       ({
@@ -1760,11 +1730,9 @@ export function useMovieRoom({
         }
       };
 
-    /*
-     * =====================================================
+    /* =====================================================
      * USER LEFT
-     * =====================================================
-     */
+     * =================================================== */
 
     const handleUserLeft =
       () => {
@@ -1804,11 +1772,9 @@ export function useMovieRoom({
           );
       };
 
-    /*
-     * =====================================================
+    /* =====================================================
      * CHAT
-     * =====================================================
-     */
+     * =================================================== */
 
     const handleChatMessage =
       ({
@@ -1858,11 +1824,9 @@ export function useMovieRoom({
           );
       };
 
-    /*
-     * =====================================================
+    /* =====================================================
      * LOVE
-     * =====================================================
-     */
+     * =================================================== */
 
     const handleLove =
       () => {
@@ -1889,11 +1853,9 @@ export function useMovieRoom({
           );
       };
 
-    /*
-     * =====================================================
+    /* =====================================================
      * ROOM FULL
-     * =====================================================
-     */
+     * =================================================== */
 
     const handleRoomFull =
       () => {
@@ -1905,11 +1867,9 @@ export function useMovieRoom({
           "/";
       };
 
-    /*
-     * =====================================================
-     * LISTENERS
-     * =====================================================
-     */
+    /* =====================================================
+     * SOCKET LISTENERS
+     * =================================================== */
 
     socket.on(
       "room-joined",
@@ -1961,11 +1921,9 @@ export function useMovieRoom({
       handleRoomFull
     );
 
-    /*
-     * =====================================================
-     * JOIN
-     * =====================================================
-     */
+    /* =====================================================
+     * JOIN ROOM
+     * =================================================== */
 
     const joinRoom =
       () => {
@@ -1988,11 +1946,9 @@ export function useMovieRoom({
       socket.connect();
     }
 
-    /*
-     * =====================================================
+    /* =====================================================
      * CLEANUP
-     * =====================================================
-     */
+     * =================================================== */
 
     return () => {
       disposed = true;
@@ -2088,15 +2044,17 @@ export function useMovieRoom({
       cameraStreamRef.current
         ?.getTracks()
         .forEach(
-          (track) =>
-            track.stop()
+          (track) => {
+            track.stop();
+          }
         );
 
       micStreamRef.current
         ?.getTracks()
         .forEach(
-          (track) =>
-            track.stop()
+          (track) => {
+            track.stop();
+          }
         );
 
       screenStreamRef.current
@@ -2117,13 +2075,17 @@ export function useMovieRoom({
         cancelAnimationFrame(
           canvasAnimationRef.current
         );
+
+        canvasAnimationRef.current =
+          null;
       }
 
       canvasStreamRef.current
         ?.getTracks()
         .forEach(
-          (track) =>
-            track.stop()
+          (track) => {
+            track.stop();
+          }
         );
 
       if (
@@ -2201,17 +2163,15 @@ export function useMovieRoom({
     socket,
   ]);
 
-  /*
-   * =========================================================
+  /* =========================================================
    * CAMERA
-   * =========================================================
-   */
+   * ======================================================= */
 
   const toggleCamera =
     useCallback(
       async () => {
         /*
-         * First camera start.
+         * First camera activation.
          */
 
         if (
@@ -2268,9 +2228,23 @@ export function useMovieRoom({
               true
             );
 
+            /*
+             * Start permanent output
+             * canvas if necessary.
+             */
+
             await ensureVideoCompositor();
 
+            /*
+             * Attach camera source.
+             */
+
             await attachCamera();
+
+            /*
+             * Girlfriend should now
+             * display our outgoing canvas.
+             */
 
             sendVideoState(
               true
@@ -2292,7 +2266,7 @@ export function useMovieRoom({
         }
 
         /*
-         * Existing camera.
+         * Camera already exists.
          */
 
         const track =
@@ -2316,15 +2290,42 @@ export function useMovieRoom({
           next
         );
 
+        /*
+         * Camera turned back ON.
+         */
+
         if (next) {
           await ensureVideoCompositor();
 
           await attachCamera();
+
+          /*
+           * Explicitly restart playback
+           * after screen-sharing changes.
+           */
+
+          const cameraVideo =
+            cameraVideoRef.current;
+
+          if (
+            cameraVideo &&
+            cameraStreamRef.current
+          ) {
+            cameraVideo.srcObject =
+              cameraStreamRef.current;
+
+            try {
+              await cameraVideo.play();
+            } catch {
+              // Ignore.
+            }
+          }
         }
 
         /*
-         * Screen keeps remote video active
-         * even when camera gets disabled.
+         * If screen sharing is active,
+         * video remains visible regardless
+         * of camera state.
          */
 
         sendVideoState(
@@ -2339,11 +2340,9 @@ export function useMovieRoom({
       ]
     );
 
-  /*
-   * =========================================================
+  /* =========================================================
    * MICROPHONE
-   * =========================================================
-   */
+   * ======================================================= */
 
   const toggleMicrophone =
     useCallback(
@@ -2429,17 +2428,15 @@ export function useMovieRoom({
       ]
     );
 
-  /*
-   * =========================================================
+  /* =========================================================
    * SCREEN SHARE
-   * =========================================================
-   */
+   * ======================================================= */
 
   const shareScreen =
     useCallback(
       async () => {
         /*
-         * Stop if already sharing.
+         * Click again = stop.
          */
 
         if (
@@ -2454,8 +2451,8 @@ export function useMovieRoom({
           /*
            * IMPORTANT:
            *
-           * NO camera permission here.
-           * Screen and camera are independent.
+           * Screen sharing never opens
+           * or enables the camera.
            */
 
           const screenStream =
@@ -2463,11 +2460,8 @@ export function useMovieRoom({
               {
                 video: {
                   frameRate: {
-                    ideal:
-                      30,
-
-                    max:
-                      30,
+                    ideal: 30,
+                    max: 30,
                   },
                 },
 
@@ -2480,17 +2474,23 @@ export function useMovieRoom({
             screenStream;
 
           /*
-           * Create canvas if this is
-           * first video action.
+           * Start output canvas if
+           * this is our first video.
            */
 
           await ensureVideoCompositor();
 
+          /*
+           * Attach screen.
+           */
+
           await attachScreen();
 
           /*
-           * Attach camera ONLY if
-           * camera was already enabled.
+           * Camera stays independent.
+           *
+           * Attach it only if it was
+           * already enabled.
            */
 
           if (
@@ -2501,7 +2501,7 @@ export function useMovieRoom({
           }
 
           /*
-           * Turn sharing mode on.
+           * Screen becomes main layer.
            */
 
           sharingRef.current =
@@ -2520,12 +2520,16 @@ export function useMovieRoom({
             true
           );
 
+          /*
+           * Remote video visible.
+           */
+
           sendVideoState(
             true
           );
 
           /*
-           * Browser's native
+           * Native browser
            * Stop Sharing button.
            */
 
@@ -2540,17 +2544,24 @@ export function useMovieRoom({
               };
           }
         } catch (error) {
-          /*
-           * User cancelling screen picker
-           * is normal.
-           */
-
           console.warn(
-            "Screen sharing stopped/cancelled:",
+            "Screen sharing cancelled:",
             error
           );
 
-          screenStreamRef.current
+          /*
+           * Only clean screen state.
+           *
+           * Camera must not change.
+           */
+
+          const failedScreen =
+            screenStreamRef.current;
+
+          screenStreamRef.current =
+            null;
+
+          failedScreen
             ?.getTracks()
             .forEach(
               (track) => {
@@ -2561,23 +2572,28 @@ export function useMovieRoom({
               }
             );
 
-          screenStreamRef.current =
-            null;
-
-          const video =
+          const screenVideo =
             screenVideoRef.current;
 
-          if (video) {
-            video.pause();
+          if (screenVideo) {
+            screenVideo.pause();
 
-            video.srcObject =
+            screenVideo.srcObject =
               null;
+
+            screenVideo.removeAttribute(
+              "src"
+            );
+
+            screenVideo.load();
           }
 
           sharingRef.current =
             false;
 
-          setSharing(false);
+          setSharing(
+            false
+          );
 
           await rebuildOutgoingAudio(
             false
@@ -2598,11 +2614,9 @@ export function useMovieRoom({
       ]
     );
 
-  /*
-   * =========================================================
+  /* =========================================================
    * CHAT
-   * =========================================================
-   */
+   * ======================================================= */
 
   const sendMessage =
     useCallback(() => {
@@ -2633,7 +2647,6 @@ export function useMovieRoom({
         "chat-message",
         {
           roomId,
-
           message:
             text,
         }
@@ -2646,11 +2659,9 @@ export function useMovieRoom({
       socket,
     ]);
 
-  /*
-   * =========================================================
+  /* =========================================================
    * LOVE
-   * =========================================================
-   */
+   * ======================================================= */
 
   const sendLove =
     useCallback(() => {
@@ -2665,11 +2676,9 @@ export function useMovieRoom({
       socket,
     ]);
 
-  /*
-   * =========================================================
+  /* =========================================================
    * RETURN
-   * =========================================================
-   */
+   * ======================================================= */
 
   return {
     partnerConnected,
