@@ -83,25 +83,6 @@ export default function ChatPanel({
       {/* HEADER                                            */}
       {/* ================================================= */}
 
-      <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-pink-500/30 to-purple-500/20 text-lg">
-            💕
-          </div>
-
-          <div>
-            <h2 className="font-semibold text-white">Chat</h2>
-
-            <p className="mt-0.5 text-xs text-white/35">Just you two</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-1.5 text-[11px] text-green-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-          Together
-        </div>
-      </div>
-
       {/* ================================================= */}
       {/* MESSAGES                                          */}
       {/* ================================================= */}
