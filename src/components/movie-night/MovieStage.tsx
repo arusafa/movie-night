@@ -44,219 +44,167 @@ export default function MovieStage({
   onShareScreen,
   onSendLove,
 }: MovieStageProps) {
-  /*
-   * =========================================================
-   * SCREEN SHARE SUPPORT
-   * =========================================================
-   *
-   * Desktop Chrome / Firefox / Edge:
-   * usually true.
-   *
-   * iPhone / iOS browsers:
-   * usually false.
-   */
-
   const [screenShareSupported, setScreenShareSupported] = useState(true);
 
   useEffect(() => {
-    const supported =
+    setScreenShareSupported(
       typeof navigator !== "undefined" &&
-      Boolean(navigator.mediaDevices?.getDisplayMedia);
-
-    setScreenShareSupported(supported);
+        Boolean(navigator.mediaDevices?.getDisplayMedia),
+    );
   }, []);
 
   return (
-    <section className="flex h-full min-h-0 flex-col bg-[#08060c]">
-      {/* ================================================= */}
-      {/* VIDEO AREA                                       */}
-      {/* ================================================= */}
+    <section className="flex flex-col bg-[#08060c] md:h-full md:min-h-0">
+      {/* VIDEO */}
 
-      <div className="min-h-0 flex-1 p-3 sm:p-4">
-        <div className="relative h-full min-h-[220px] w-full overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl">
-          {/* ================================================= */}
-          {/* PARTNER VIDEO                                    */}
-          {/* ================================================= */}
+      <div className="p-3 pb-2 sm:p-4 md:min-h-0 md:flex-1">
+        <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl md:h-full md:min-h-[220px] md:aspect-auto">
+          {/* REMOTE VIDEO */}
 
           <video
             ref={remoteVideoRef}
             autoPlay
             playsInline
-            className={`absolute inset-0 h-full w-full bg-black object-contain transition-opacity duration-200 ${
+            className={`absolute inset-0 h-full w-full bg-black object-cover transition-opacity duration-200 ${
               remoteVideoAvailable ? "opacity-100" : "opacity-0"
             }`}
           />
 
-          {/* ================================================= */}
-          {/* EMPTY STATE                                      */}
-          {/* ================================================= */}
+          {/* EMPTY STATE */}
 
           {!remoteVideoAvailable && (
             <div className="absolute inset-0 z-10 flex flex-col items-center justify-center px-4 text-center">
               {!partnerConnected ? (
                 <>
-                  <div className="mb-4 text-5xl">💕</div>
+                  <div className="mb-2 text-4xl sm:text-5xl">💕</div>
 
-                  <h2 className="text-lg font-semibold sm:text-xl">
+                  <h2 className="text-base font-semibold sm:text-xl">
                     Waiting for your girlfriend
                   </h2>
 
-                  <p className="mt-2 text-sm text-white/40">
-                    Send her this room code:
+                  <p className="mt-1 text-xs text-white/40 sm:text-sm">
+                    Send her this room code
                   </p>
 
-                  <div className="mt-4 rounded-xl bg-white/5 px-5 py-3 font-mono text-xl tracking-widest text-pink-400">
+                  <div className="mt-3 rounded-xl bg-white/5 px-4 py-2 font-mono text-lg tracking-widest text-pink-400 sm:px-5 sm:py-3 sm:text-xl">
                     {roomId}
                   </div>
                 </>
               ) : (
                 <>
-                  <div className="mb-4 text-5xl">🎬</div>
+                  <div className="mb-2 text-4xl sm:text-5xl">🎬</div>
 
                   <h2 className="text-lg font-semibold sm:text-xl">
                     You&apos;re together ❤️
                   </h2>
 
-                  <p className="mt-2 max-w-sm text-sm text-white/40">
-                    Turn on your camera or share your screen.
+                  <p className="mt-1 text-xs text-white/40 sm:text-sm">
+                    Turn on your camera or wait for a shared screen.
                   </p>
                 </>
               )}
             </div>
           )}
 
-          {/* ================================================= */}
-          {/* SCREEN SHARE BADGE                               */}
-          {/* ================================================= */}
+          {/* SCREEN BADGE */}
 
           {sharing && (
-            <div className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/70 px-3 py-2 text-xs font-medium text-white shadow-lg backdrop-blur-xl">
+            <div className="absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/70 px-3 py-1.5 text-[10px] font-medium text-white backdrop-blur-xl sm:text-xs">
               <span className="h-2 w-2 animate-pulse rounded-full bg-pink-500" />
               Sharing screen
             </div>
           )}
 
-          {/* ================================================= */}
-          {/* LOCAL CAMERA PREVIEW                             */}
-          {/* ================================================= */}
+          {/* LOCAL CAMERA */}
 
           <CameraPreview enabled={cameraOn} stream={localStream} />
         </div>
       </div>
 
-      {/* ================================================= */}
-      {/* CONTROLS                                         */}
-      {/* ================================================= */}
+      {/* CONTROLS */}
 
-      <div className="relative z-40 shrink-0 border-t border-white/10 bg-[#0d0910] px-3 py-3 sm:px-4">
-        <div className="flex items-center justify-center gap-2 sm:gap-3">
-          {/* ================================================= */}
-          {/* CAMERA                                           */}
-          {/* ================================================= */}
+      <div className="shrink-0 border-t border-white/10 bg-[#0d0910] px-3 py-3">
+        <div className="flex items-center justify-center gap-2">
+          {/* CAMERA */}
 
           <button
             type="button"
             onClick={onToggleCamera}
-            title={cameraOn ? "Turn camera off" : "Turn camera on"}
             aria-label={cameraOn ? "Turn camera off" : "Turn camera on"}
-            className={`flex h-12 min-w-12 touch-manipulation items-center justify-center rounded-xl px-3 transition-all active:scale-95 ${
+            className={`flex h-12 w-14 touch-manipulation items-center justify-center rounded-xl text-xl transition-all active:scale-95 ${
               cameraOn
-                ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400"
-                : "bg-white/[0.07] text-white/80 hover:bg-white/10"
+                ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20"
+                : "bg-white/[0.07] text-white/80"
             }`}
           >
-            <span className="text-lg">{cameraOn ? "📹" : "🚫"}</span>
+            {cameraOn ? "📹" : "🚫"}
           </button>
 
-          {/* ================================================= */}
-          {/* MICROPHONE                                       */}
-          {/* ================================================= */}
+          {/* MICROPHONE */}
 
           <button
             type="button"
             onClick={onToggleMicrophone}
-            title={micOn ? "Mute microphone" : "Turn microphone on"}
             aria-label={micOn ? "Mute microphone" : "Turn microphone on"}
-            className={`flex h-12 min-w-12 touch-manipulation items-center justify-center rounded-xl px-3 transition-all active:scale-95 ${
+            className={`flex h-12 w-14 touch-manipulation items-center justify-center rounded-xl text-xl transition-all active:scale-95 ${
               micOn
-                ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400"
-                : "bg-white/[0.07] text-white/80 hover:bg-white/10"
+                ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20"
+                : "bg-white/[0.07] text-white/80"
             }`}
           >
-            <span className="text-lg">{micOn ? "🎤" : "🔇"}</span>
+            {micOn ? "🎤" : "🔇"}
           </button>
 
-          {/* ================================================= */}
-          {/* SCREEN SHARE                                     */}
-          {/* ================================================= */}
+          {/* SCREEN */}
 
           <button
             type="button"
             onClick={screenShareSupported ? onShareScreen : undefined}
             disabled={!screenShareSupported}
-            title={
-              !screenShareSupported
-                ? "Screen sharing is not supported on this browser"
-                : sharing
-                  ? "Stop sharing"
-                  : "Share screen"
-            }
             aria-label={
-              !screenShareSupported
-                ? "Screen sharing unavailable"
-                : sharing
-                  ? "Stop sharing"
-                  : "Share screen"
+              screenShareSupported
+                ? "Share screen"
+                : "Screen sharing unavailable"
             }
-            className={`flex h-12 min-w-12 touch-manipulation items-center justify-center rounded-xl px-3 transition-all ${
+            className={`flex h-12 w-14 touch-manipulation items-center justify-center rounded-xl text-xl transition-all ${
               !screenShareSupported
                 ? "cursor-not-allowed bg-white/[0.03] text-white/20"
                 : sharing
-                  ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20 hover:bg-pink-400 active:scale-95"
-                  : "bg-white/[0.07] text-white/80 hover:bg-white/10 active:scale-95"
+                  ? "bg-pink-500 text-white shadow-lg shadow-pink-500/20 active:scale-95"
+                  : "bg-white/[0.07] text-white/80 active:scale-95"
             }`}
           >
-            <span className="text-lg">🖥️</span>
+            🖥️
           </button>
 
-          {/* ================================================= */}
-          {/* LOVE                                             */}
-          {/* ================================================= */}
+          {/* LOVE */}
 
           <button
             type="button"
             onClick={onSendLove}
-            title="Send love"
             aria-label="Send love"
-            className="flex h-12 min-w-12 touch-manipulation items-center justify-center rounded-xl bg-pink-500/10 px-3 text-xl transition-all hover:scale-105 hover:bg-pink-500/20 active:scale-95"
+            className="flex h-12 w-14 touch-manipulation items-center justify-center rounded-xl bg-pink-500/10 text-xl transition-all active:scale-95"
           >
             ❤️
           </button>
         </div>
 
-        {/* ================================================= */}
-        {/* STATUS                                           */}
-        {/* ================================================= */}
+        {/* SHORT MOBILE MESSAGE */}
 
-        {(cameraOn || sharing) && (
-          <p className="mt-2 text-center text-[10px] text-white/30">
-            {sharing && cameraOn
-              ? "Sharing screen + camera."
-              : sharing
-                ? "Sharing your screen."
-                : "Camera is on."}
+        {!screenShareSupported && (
+          <p className="mx-auto mt-2 max-w-xs text-center text-[10px] leading-4 text-white/25">
+            Screen sharing isn&apos;t available on iPhone. You can still watch
+            your partner&apos;s shared screen.
           </p>
         )}
 
-        {/* ================================================= */}
-        {/* MOBILE / IOS SCREEN SHARE MESSAGE                 */}
-        {/* ================================================= */}
-
-        {!screenShareSupported && (
-          <p className="mx-auto mt-2 max-w-sm px-4 text-center text-[10px] leading-relaxed text-white/30">
-            Screen sharing isn&apos;t available in this browser. You can still
-            use camera, microphone, chat and watch your partner&apos;s shared
-            screen.
+        {screenShareSupported && (cameraOn || sharing) && (
+          <p className="mt-2 text-center text-[10px] text-white/25">
+            {sharing && cameraOn
+              ? "Screen + camera"
+              : sharing
+                ? "Sharing screen"
+                : "Camera on"}
           </p>
         )}
       </div>
